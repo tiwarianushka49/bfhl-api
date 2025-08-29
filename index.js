@@ -1,3 +1,4 @@
+// index.js
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
@@ -7,52 +8,64 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+// helpers
 const isIntegerString = (s) => /^-?\d+$/.test(s);
-const isAlphaString   = (s) => /^[A-Za-z]+$/.test(s);
+const isAlphaString = (s) => /^[A-Za-z]+$/.test(s);
 
 function buildUserId() {
-  const full = (process.env.FULL_NAME_LOWER || "john_doe").replace(/\s+/g, "_").toLowerCase();
-  const dob  = process.env.DOB_DDMMYYYY || "17091999";
+  const full = (process.env.FULL_NAME_LOWER || "your_name").replace(/\s+/g, "_").toLowerCase();
+  const dob = process.env.DOB_DDMMYYYY || "01011999";
   return `${full}_${dob}`;
 }
 
-function altCapsReversed(chars) {
-  const rev = [...chars].reverse();
-  return rev.map((ch, i) => (i % 2 === 0 ? ch.toUpperCase() : ch.toLowerCase())).join("");
+function altCapsReverse(chars) {
+  const r = [...chars].reverse();
+  return r.map((ch, i) => (i % 2 === 0 ? ch.toUpperCase() : ch.toLowerCase())).join("");
+}
+
+function baseEnvelope(is_success, extras = {}) {
+  // ALWAYS include all required keys
+  return {
+    is_success,                                 // 1. Status
+    user_id: buildUserId(),                     // 2. User ID
+    email: process.env.EMAIL || "",             // 3. Email ID
+    roll_number: process.env.ROLL_NUMBER || "", // 4. College Roll Number
+    odd_numbers: [],                            // 6. Odd numbers (as strings)
+    even_numbers: [],                           // 5. Even numbers (as strings)
+    alphabets: [],                              // 7. Alphabets (UPPERCASE)
+    special_characters: [],                     // 8. Special characters
+    sum: "0",                                   // 9. Sum of numbers (as STRING)
+    concat_string: "",                          // 10. Alternating caps of reversed letters
+    ...extras,
+  };
 }
 
 app.post("/bfhl", (req, res) => {
-  const email = process.env.EMAIL || "john@xyz.com";
-  const roll  = process.env.ROLL_NUMBER || "ABCD123";
-  const user_id = buildUserId();
-
   try {
-    const { data } = req.body || {};
-    if (!Array.isArray(data)) {
-      return res.status(200).json({
-        is_success: false,
-        user_id, email, roll_number: roll,
-        message: 'Invalid payload: "data" must be an array.'
-      });
+    const data = Array.isArray(req.body?.data) ? req.body.data.map(String) : null;
+    if (!data) {
+      return res.status(200).json(
+        baseEnvelope(false, { message: 'Invalid payload: "data" must be an array.' })
+      );
     }
 
     const even_numbers = [];
     const odd_numbers = [];
-    const alphabets = [];              // only pure A-Z tokens (UPPERCASED)
-    const special_characters = [];     // everything else (incl. mixed, symbols)
-    let sum = 0;
-    const letterChars = [];            // letters from ALL tokens for concat_string
+    const alphabets = [];
+    const special_characters = [];
+    const allLetters = [];
+    let sumN = 0;
 
-    for (const item of data) {
-      const v = String(item).trim();
+    for (const raw of data) {
+      const v = String(raw).trim();
 
-      // collect letters from every token for concat_string
-      for (const m of v.matchAll(/[A-Za-z]/g)) letterChars.push(m[0]);
+      // collect letters from every token (for concat_string)
+      for (const m of v.matchAll(/[A-Za-z]/g)) allLetters.push(m[0]);
 
       if (isIntegerString(v)) {
         const n = parseInt(v, 10);
-        sum += n;
-        (Math.abs(n) % 2 === 0 ? even_numbers : odd_numbers).push(v);
+        sumN += n;
+        (Math.abs(n) % 2 === 0 ? even_numbers : odd_numbers).push(v); // keep as strings
       } else if (isAlphaString(v)) {
         alphabets.push(v.toUpperCase());
       } else if (v.length) {
@@ -60,27 +73,24 @@ app.post("/bfhl", (req, res) => {
       }
     }
 
-    return res.status(200).json({
-      is_success: true,
-      user_id,
-      email,
-      roll_number: roll,
-      odd_numbers,
+    const out = baseEnvelope(true, {
       even_numbers,
+      odd_numbers,
       alphabets,
       special_characters,
-      sum: String(sum),
-      concat_string: altCapsReversed(letterChars),
+      sum: String(sumN),
+      concat_string: altCapsReverse(allLetters),
     });
+
+    return res.status(200).json(out);
   } catch (e) {
-    return res.status(200).json({
-      is_success: false,
-      user_id, email, roll_number: roll,
-      message: "Unexpected error"
-    });
+    return res.status(200).json(
+      baseEnvelope(false, { message: "Unexpected error" })
+    );
   }
 });
 
 app.get("/", (_req, res) => res.status(200).send("OK"));
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Listening on ${PORT}`));
